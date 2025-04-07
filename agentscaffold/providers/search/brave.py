@@ -28,7 +28,7 @@ class BraveSearchProvider:
             raise ImportError("httpx is required for BraveSearchProvider. Install with 'pip install httpx'")
         
         self.client = httpx.Client(
-            base_url="https://api.search.brave.com/",
+            base_url="https://api.search.brave.com/res/v1/web/search",
             headers={
                 "Accept": "application/json",
                 "X-Subscription-Token": self.api_key

@@ -1,1 +1,0 @@
-# TODO: Implement Google search provider

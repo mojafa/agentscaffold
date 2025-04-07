@@ -4,6 +4,8 @@ import os
 import json
 import hashlib
 import uuid
+import datetime
+
 from typing import Dict, Any, List, Optional, Union, Tuple
 
 # Try to import optional dependencies
@@ -93,14 +95,18 @@ class ChromaDBMemoryProvider:
         """
         # Generate a deterministic ID based on content
         entry_id = hashlib.md5(text.encode()).hexdigest()
-        
+
+        # Supply default metadata if none is provided or if it's empty.
+        if not metadata or len(metadata) == 0:
+            metadata = {"timestamp": datetime.datetime.utcnow().isoformat()}
+
         # Add the document to the collection
         self.collection.add(
             documents=[text],
-            metadatas=[metadata or {}],
+            metadatas=[metadata],
             ids=[entry_id]
         )
-        
+
         return entry_id
     
     def add_many(self, texts: List[str], metadatas: Optional[List[Dict[str, Any]]] = None) -> List[str]:

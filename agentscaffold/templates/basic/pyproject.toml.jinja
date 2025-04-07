@@ -1,50 +1,75 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "{{package_name}}"
+name = "{{ project_name }}"
 version = "0.1.0"
-description = "A {{agent_name}} agent built with AgentScaffold"
-requires-python = ">=3.10"
-dependencies = [
-    "pydantic>=2.0.0",
-    "agentscaffold",
-    "pydantic-ai",
-    "daytona-sdk",
-    "python-dotenv",
-{% if llm_provider == "openai" %}
-    "openai>=1.0.0",
-{% elif llm_provider == "anthropic" %}
-    "anthropic>=0.5.0",
-{% elif llm_provider == "huggingface" %}
-    "huggingface_hub>=0.16.0",
-{% elif llm_provider == "ollama" %}
-    "ollama>=0.1.0",
-{% endif %}
-
-{% if search_provider == "brave" %}
-    "brave-search>=0.1.0",
-{% elif search_provider == "browserbase" %}
-    "browserbase>=0.1.0",
-{% endif %}
-
-{% if memory_provider == "supabase" %}
-    "supabase>=0.7.0",
-{% elif memory_provider == "milvus" %}
-    "pymilvus>=2.2.0",
-{% elif memory_provider == "chromadb" %}
-    "chromadb>=0.4.0",
-{% endif %}
-
-{% if logging_provider == "logfire" %}
-    "logfire>=0.1.0",
-{% endif %}
+description = "{{ project_name }} - An AI agent built with AgentScaffold"
+readme = "README.md"
+authors = [
+    {name = "{{ project_name }} Developer"}
 ]
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "agentscaffold",
+    {% if 'llm' in providers %}
+        {% if providers.llm == 'openai' %}
+            "openai",
+        {% elif providers.llm == 'anthropic' %}
+            "anthropic",
+        {% endif %}
+    {% endif %}
+    
+    {% if 'memory' in providers %}
+        {% if providers.memory == 'chromadb' %}
+        "chromadb",
+        {% endif %}
+    {% endif %}
+
+    {% if 'search' in providers %}
+        {% if providers.search == 'brave' %}
+        "brave-search",
+        {% endif %}
+    {% endif %}
+
+    {% if 'logging' in providers %}
+        {% if providers.logging == 'logfire' %}
+        "logfire",
+        {% endif %}
+    {% endif %}
+    
+    "python-dotenv",
+]
+
+[project.scripts]
+{{ project_name.replace('-', '_') }} = "{{ package_name }}.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/{{ project_name }}"
+"Bug Tracker" = "https://github.com/yourusername/{{ project_name }}/issues"
+
+[tool.setuptools]
+packages = ["{{ package_name }}", "{{ package_name }}.providers", "{{ package_name }}.providers.llm", "{{ package_name }}.providers.memory", "{{ package_name }}.providers.search", "{{ package_name }}.providers.logging"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
 
 [tool.black]
 line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?'
 
-[tool.ruff]
-line-length = 88
-select = ["E", "F", "I"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

@@ -1,137 +1,176 @@
 #!/usr/bin/env python
 """
-Main entry point for the {{ agent_name }} agent.
+Main entry point for the {{agent_name}} agent with Daytona runtime.
 """
 
 import os
 import sys
-import asyncio
 import argparse
-import json
-import uuid
+import asyncio
 from typing import Dict, Any, Optional
 
-# Import your agent
-try:
-    from {{ package_name }}.agent import {{ agent_class_name }}
-
-except ImportError:
-    print("Could not import {{ agent_class_name }}. Make sure the package is installed.")
-    sys.exit(1)
-
-# Load environment variables
+# Try to load environment variables from .env file
 try:
     from dotenv import load_dotenv
-    load_dotenv()
-    print("✅ Loaded environment variables")
+    env_file = '.env'
+    if os.path.exists(env_file):
+        load_dotenv(env_file)
+        print(f"Loaded environment variables from ./{env_file}")
 except ImportError:
-    print("Warning: python-dotenv not installed. Using system environment variables only.")
+    pass
 
-async def main():
-    """Run the agent with the given arguments."""
-    parser = argparse.ArgumentParser(description="Run {{ agent_name }}")
-    parser.add_argument("--message", "-m", help="Message to process")
-    parser.add_argument("--interactive", "-i", action="store_true", help="Run in interactive mode")
-    parser.add_argument("--search", "-s", help="Search query")
-    parser.add_argument("--context", "-c", action="store_true", help="Retrieve context from memory")
-    parser.add_argument("--context-query", help="Query for context retrieval")
-    parser.add_argument("--silent", action="store_true", help="Run with minimal console output")
-    parser.add_argument("--mcp-tool", help="MCP tool to use (e.g., brave-search, chroma-memory)")
-    parser.add_argument("--mcp-query", help="Query for the MCP tool")
-    parser.add_argument("--no-daytona", action="store_true", help="Skip Daytona runtime")
+# Import agent
+from {{package_name}}.agent import {{agent_class_name}}
+
+async def main_async(args):
+    """Asynchronous main function with mandatory Daytona runtime."""
     
-    args = parser.parse_args()
+    # Initialize the agent with all providers and Daytona runtime
+    agent = {{agent_class_name}}(
+        llm_provider="{{llm_provider}}",
+        search_provider="{{search_provider}}" if not args.no_search else None,
+        memory_provider="{{memory_provider}}" if not args.no_memory else None,
+        logging_provider="{{logging_provider}}" if not args.no_logging else None
+    )
     
-    # Generate persistent conversation ID
-    conversation_id = os.environ.get("CONVERSATION_ID", str(uuid.uuid4()))
-    
-    # Initialize agent
-    agent = {{ agent_class_name }}(conversation_id=conversation_id)
-    if args.silent:
+    # Set silent mode if requested
+    if args.silent and hasattr(agent, 'set_silent_mode'):
         agent.set_silent_mode(True)
     
-    print("🔧 Initializing {{ agent_name }} agent...")
-    
-    # Handle direct MCP tool execution
-    if args.mcp_tool:
-        print(f"🛠️ Using MCP tool: {args.mcp_tool}")
-        query = args.mcp_query or args.message or "test query"
-        
-        if hasattr(agent, "mcp_provider") and agent.mcp_provider:
-            try:
-                input_data = {"query": query}
-                
-                if args.message and args.message.lower().startswith("remember that"):
-                    # Store memory
-                    memory_content = args.message[13:].strip()
-                    input_data = {
-                        "operation": "store",
-                        "data": {
-                            "content": memory_content,
-                            "timestamp": __import__("time").time(),
-                            "conversation_id": conversation_id
-                        }
-                    }
-                
-                result = await agent.mcp_provider.execute(args.mcp_tool, input_data)
-                print(json.dumps(result, indent=2))
-                return
-            except Exception as e:
-                print(f"❌ Error using MCP: {e}")
-                print("Falling back to standard execution")
-    
-    # Skip Daytona if specified
-    if args.no_daytona and hasattr(agent, "runtime"):
-        print("⚠️ Bypassing Daytona runtime, using local execution")
-        agent.runtime = None
-    
-    # Process search query
-    if args.search:
-        print(f"🔍 Searching for: {args.search}")
-        result = await agent.run({
-            "message": f"Search for {args.search}",
-            "mcp_tool": "brave-search",
-            "mcp_query": args.search
-        })
-        print(f"\nSearch results:\n\n{result.get('response', 'No results found')}")
-        return
-    
-    # Process context query
-    if args.context or args.context_query:
-        query = args.context_query or ""
-        print(f"🧠 Retrieving context for: {query}")
-        result = await agent.run({
-            "message": f"Remember {query}",
-            "mcp_tool": "chroma-memory",
-            "mcp_query": query
-        })
-        print(f"\nContext:\n\n{result.get('response', 'No context found')}")
-        return
-    
-    # Process message or run interactive mode
+    # Process message or enter interactive mode
     if args.message:
-        print(f"📝 Processing message: {args.message}")
-        result = await agent.run({"message": args.message})
-        print(f"\nAgent: {result.get('response', 'No response')}")
+        # If a message is provided, process it
+        kwargs = {}
+        
+        if not args.silent:
+            print("Processing your request...")
+            
+        response = await agent.run(args.message, **kwargs)
+        
+        if not args.silent:
+            print(f"\nAgent response:\n{response}")
+        else:
+            print(response)
+            
     elif args.interactive:
-        print(f"\n🚀 {agent.name} - {agent.description}")
-        print("Type 'quit' or 'exit' to end session")
+        # Enter interactive mode with enhanced command handling
+        print(f"🤖 {{agent_name}} Agent - Interactive Mode")
+        print("Type 'exit' or 'quit' to end the conversation.")
+        print("Type 'clear' to clear the conversation history.")
+        print("Type 'help' for more commands.")
         
         while True:
             try:
                 user_input = input("\nYou: ")
-                if user_input.lower() in ["quit", "exit", "bye"]:
-                    print("👋 Goodbye!")
+                
+                # Command handling
+                if user_input.lower() in ["exit", "quit"]:
+                    print("Goodbye!")
                     break
                 
-                print("⚡ Processing...")
-                result = await agent.run({"message": user_input})
-                print(f"\nAgent: {result.get('response', 'No response')}")
+                elif user_input.lower() == "help":
+                    print("\nAvailable commands:")
+                    print("  exit, quit - End the conversation")
+                    print("  clear - Clear conversation history")
+                    print("  search [query] - Directly search for information")
+                    print("  remember [text] - Store text in memory")
+                    print("  recall [query] - Search memory for information")
+                    print("  status - Show current agent configuration")
+                    print("  debug - Run system diagnostics")
+                    print("  help - Show this help message")
+                    continue
+                    
+                elif user_input.lower() == "clear":
+                    if hasattr(agent, 'conversation_history'):
+                        agent.conversation_history = []
+                    print("Conversation history cleared.")
+                    continue
+                    
+                elif user_input.lower() == "status":
+                    print("\nAgent Configuration:")
+                    print(f"  LLM Provider: {agent.llm_provider}")
+                    print(f"  Memory Provider: {agent.memory_provider}")
+                    print(f"  Search Provider: {agent.search_provider}")
+                    print(f"  Logging Provider: {agent.logging_provider}")
+                    print("  Runtime: Daytona")
+                    continue
+                    
+                elif user_input.lower() == "debug":
+                    print("\nRunning system diagnostics...")
+                    try:
+                        # Check each provider
+                        if agent.llm_provider:
+                            print("✅ LLM Provider: Configured")
+                        if agent.memory_provider:
+                            print("✅ Memory Provider: Configured")
+                        if agent.search_provider:
+                            print("✅ Search Provider: Configured")
+                        if agent.logging_provider:
+                            print("✅ Logging Provider: Configured")
+                        
+                        # Always Daytona runtime
+                        print("✅ Runtime: Daytona")
+                    except Exception as debug_error:
+                        print(f"❌ Diagnostics error: {debug_error}")
+                    continue
+                    
+                elif not user_input.strip():
+                    continue
+                
+                # Process user input
+                print("\nThinking...")
+                response = await agent.run(user_input)
+                
+                # Ensure response is extracted correctly
+                if isinstance(response, dict):
+                    response_text = response.get('response', str(response))
+                else:
+                    response_text = str(response)
+                
+                print(f"\nAgent: {response_text}")
+                
             except KeyboardInterrupt:
-                print("\n👋 Session interrupted. Goodbye!")
+                print("\nGoodbye!")
                 break
+            except Exception as e:
+                print(f"\nError: {e}")
     else:
-        parser.print_help()
+        print("Please provide a message or use interactive mode.")
+
+
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description="{{agent_name}} Agent with Daytona Runtime")
+    parser.add_argument("--message", "-m", type=str, help="Message to process")
+    parser.add_argument("--interactive", "-i", action="store_true", help="Enter interactive mode")
+    parser.add_argument("--no-search", action="store_true", help="Disable search capability")
+    parser.add_argument("--no-memory", action="store_true", help="Disable memory capability")
+    parser.add_argument("--no-logging", action="store_true", help="Disable external logging")
+    parser.add_argument("--silent", action="store_true", help="Run with minimal console output")
+    parser.add_argument("--version", "-v", action="store_true", help="Show version information")
+    
+    args = parser.parse_args()
+    
+    # If version flag is set, show version and exit
+    if args.version:
+        try:
+            from {{package_name}} import __version__
+            print(f"{{agent_name}} v{__version__}")
+        except ImportError:
+            print("{{agent_name}} version unknown")
+        return
+    
+    # If no arguments provided, default to interactive mode
+    if len(sys.argv) == 1:
+        args.interactive = True
+    
+    # Run the async main function
+    try:
+        asyncio.run(main_async(args))
+    except KeyboardInterrupt:
+        print("\nOperation cancelled.")
+        sys.exit(0)
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

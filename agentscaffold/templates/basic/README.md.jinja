@@ -6,30 +6,19 @@ An AI agent built with AgentScaffold that uses Pydantic AI and runs in a secure 
 
 {% if llm_provider == "openai" %}
 - Uses OpenAI API for language model capabilities
-{% elif llm_provider == "anthropic" %}
+{% endif %}
+{% if llm_provider == "anthropic" %}
 - Uses Anthropic Claude API for language model capabilities
-{% elif llm_provider == "huggingface" %}
-- Uses Hugging Face Inference API for language model capabilities
-{% elif llm_provider == "ollama" %}
-- Uses Ollama for local language model capabilities
-{% elif llm_provider == "daytona" %}
-- Uses Daytona for managed language model capabilities
 {% endif %}
 
 {% if search_provider != "none" %}
 {% if search_provider == "brave" %}
 - Integrates Brave Search API for web search capabilities
-{% elif search_provider == "browserbase" %}
-- Integrates BrowserBase API for web search capabilities
 {% endif %}
 {% endif %}
 
 {% if memory_provider != "none" %}
-{% if memory_provider == "supabase" %}
-- Uses Supabase vector storage for memory and context retrieval
-{% elif memory_provider == "milvus" %}
-- Uses Milvus vector database for memory and context retrieval
-{% elif memory_provider == "chromadb" %}
+{% if memory_provider == "chromadb" %}
 - Uses ChromaDB local vector database for memory and context retrieval
 {% endif %}
 {% endif %}
@@ -48,26 +37,16 @@ An AI agent built with AgentScaffold that uses Pydantic AI and runs in a secure 
 - OpenAI API key
 {% elif llm_provider == "anthropic" %}
 - Anthropic API key
-{% elif llm_provider == "huggingface" %}
-- HuggingFace API key
-{% elif llm_provider == "ollama" %}
-- Ollama running locally or at a specified host
 {% endif %}
 
 {% if search_provider != "none" %}
 {% if search_provider == "brave" %}
 - Brave Search API key
-{% elif search_provider == "browserbase" %}
-- BrowserBase API key
 {% endif %}
 {% endif %}
 
 {% if memory_provider != "none" %}
-{% if memory_provider == "supabase" %}
-- Supabase account with vector extension enabled
-{% elif memory_provider == "milvus" %}
-- Milvus database instance
-{% elif memory_provider == "chromadb" %}
+{% if memory_provider == "chromadb" %}
 - Local directory for ChromaDB storage
 {% endif %}
 {% endif %}

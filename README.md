@@ -45,8 +45,16 @@ Add a command-based MCP server:
 
 ```bash
 # Add a stdio-based MCP server
-agentscaffold mcp add daytona "python -m daytona_server" -e API_KEY=your_api_key
+agentscaffold mcp list
 ```
+
+Add a new MCP provider:
+
+```bash
+# Add a new provider (e.g., anthropic)
+agentscaffold mcp add anthropic --key <your-anthropic-api-key>
+```
+
 
 Add an HTTP-based MCP server:
 
@@ -79,8 +87,8 @@ agentscaffold mcp test claude-code
 Remove a server:
 
 ```bash
-# Remove an MCP server
-agentscaffold mcp remove daytona
+# Remove an MCP provider
+agentscaffold mcp remove openai-llm
 ```
 
 ## Configuring Daytona
@@ -139,6 +147,17 @@ uv pip install -e ".[dev]"
 
 # Run tests
 pytest
+```
+
+## Environment Setup
+
+Create a `.env` file with your API keys:
+
+```
+OPENAI_API_KEY=your-openai-api-key
+BRAVE_API_KEY=your-brave-api-key
+LOGFIRE_API_KEY=your-logfire-api-key
+DAYTONA_API_KEY=your-daytona-api-key
 ```
 
 ## License

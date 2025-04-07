@@ -1,906 +1,990 @@
-"""Agent implementation for {{agent_name}}."""
+"""
+Agent implementation for {{agent_name}} with Daytona runtime integration.
+"""
 
 import os
-import json
-import logging
 import asyncio
+import logging
+import json
+import sys
 from typing import Dict, Any, List, Optional, Union
-# Import Pydantic
-from pydantic import BaseModel, Field, ConfigDict
+from datetime import datetime
 
+# Daytona runtime import
+try:
+    from daytona_sdk import Daytona, CreateWorkspaceParams, DaytonaConfig
+except ImportError:
+    print("Daytona SDK not installed. Installing...")
+    os.system("pip install daytona-sdk")
+    from daytona_sdk import Daytona, CreateWorkspaceParams, DaytonaConfig
 
-from agentscaffold.agent import BaseAgent, AgentInput, AgentOutput
+try:
+    import httpx
+except ImportError:
+    print("httpx package not installed. Installing...")
+    os.system("pip install httpx")
+    import httpx
 
-class {{agent_class_name}}Input(AgentInput):
-    """Input model for {{agent_class_name}}."""
-    # Add any additional input fields specific to this agent
-    pass
-
-class {{agent_class_name}}Output(AgentOutput):
-    """Output model for {{agent_class_name}}."""
-    # Add any additional output fields specific to this agent
-    pass
-
-class {{agent_class_name}}(BaseAgent):
+class DaytonaRuntime:
     """
-    {{agent_class_name}} Agent implementation.
-    {{description}}
+    Daytona runtime management for {{agent_name}} agent.
+    
+    Handles workspace creation, code execution, and runtime environment setup.
     """
+    
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize Daytona runtime.
+        
+        Args:
+            config: Optional configuration dictionary
+        """
+        # Get Daytona configuration from environment
+        self.api_key = os.environ.get('DAYTONA_API_KEY')
+        self.api_url = os.environ.get('DAYTONA_API_URL', 'https://app.daytona.io/api')
+        self.target = os.environ.get('DAYTONA_TARGET', 'us')
+        self.timeout = float(os.environ.get('DAYTONA_TIMEOUT', 30.0))
+        
+        # Merge any provided config
+        self.config = config or {}
+        
+        # Daytona client setup
+        self.client = None
+        self.workspace = None
+        
+        # Initialize Daytona client
+        self._initialize_client()
+    
+    def _initialize_client(self):
+        """
+        Initialize Daytona client with configuration.
+        """
+        try:
+            if not self.api_key:
+                raise ValueError("No Daytona API key found in environment")
+            
+            # Create Daytona configuration
+            daytona_config = DaytonaConfig(
+                api_key=self.api_key,
+                server_url=self.api_url,
+                target=self.target
+            )
+            
+            # Create Daytona client
+            self.client = Daytona(daytona_config)
+            print("✅ Daytona client initialized successfully")
+        
+        except Exception as e:
+            print(f"❌ Daytona initialization error: {e}")
+            self.client = None
+    
+    def create_workspace(self, language: str = 'python'):
+        """
+        Create a new Daytona workspace.
+        
+        Args:
+            language: Programming language for the workspace
+        
+        Returns:
+            Workspace object
+        """
+        try:
+            if not self.client:
+                raise RuntimeError("Daytona client not initialized")
+            
+            # Create workspace parameters
+            params = CreateWorkspaceParams(language=language)
+            
+            # Create workspace
+            self.workspace = self.client.create(params)
+            print(f"🚀 Created Daytona workspace: {self.workspace.id}")
+            
+            return self.workspace
+        
+        except Exception as e:
+            print(f"❌ Workspace creation error: {e}")
+            return None
+    
+    def upload_code(self, local_path: str, remote_path: str = '/home/daytona/agent'):
+        """
+        Upload code to the Daytona workspace.
+        
+        Args:
+            local_path: Local path of the code to upload
+            remote_path: Remote path in the workspace
+        
+        Returns:
+            bool: Success status
+        """
+        try:
+            if not self.workspace:
+                raise RuntimeError("No active workspace")
+            
+            # Ensure remote directory exists
+            self.workspace.process.exec(f"mkdir -p {remote_path}")
+            
+            # Walk through local directory and upload files
+            for root, dirs, files in os.walk(local_path):
+                for file in files:
+                    # Skip certain file types
+                    if file.endswith(('.pyc', '.pyo', '.log')):
+                        continue
+                    
+                    # Construct full local and remote paths
+                    local_file = os.path.join(root, file)
+                    relative_path = os.path.relpath(local_file, local_path)
+                    remote_file = os.path.join(remote_path, relative_path)
+                    
+                    # Create remote directory if needed
+                    remote_dir = os.path.dirname(remote_file)
+                    self.workspace.process.exec(f"mkdir -p {remote_dir}")
+                    
+                    # Read and upload file
+                    with open(local_file, 'rb') as f:
+                        content = f.read()
+                        self.workspace.fs.upload_file(remote_file, content)
+                    
+                    print(f"📤 Uploaded: {local_file} → {remote_file}")
+            
+            return True
+        
+        except Exception as e:
+            print(f"❌ Code upload error: {e}")
+            return False
+    
+    def execute_command(self, command: str):
+        """
+        Execute a command in the Daytona workspace.
+        
+        Args:
+            command: Command to execute
+        
+        Returns:
+            Command execution result
+        """
+        try:
+            if not self.workspace:
+                raise RuntimeError("No active workspace")
+            
+            # Execute command
+            result = self.workspace.process.exec(command)
+            print(f"🔧 Executed: {command}")
+            return result
+        
+        except Exception as e:
+            print(f"❌ Command execution error: {e}")
+            return None
+    
+    def cleanup(self):
+        """
+        Clean up and remove the Daytona workspace.
+        """
+        try:
+            if self.workspace:
+                self.client.remove(self.workspace)
+                print("🧹 Workspace cleaned up")
+                self.workspace = None
+        
+        except Exception as e:
+            print(f"❌ Workspace cleanup error: {e}")
+
+
+class {{agent_class_name}}:
+    """{{agent_name}} Agent main class."""
     
     def __init__(
         self,
-        name: str = "{{agent_name}}",
-        description: str = "{{description}}",
+        llm_provider: Optional[str] = None,
+        memory_provider: Optional[str] = None,
+        search_provider: Optional[str] = None,
+        logging_provider: Optional[str] = None,
         **kwargs
     ):
         """
-        Initialize the {{agent_class_name}} agent.
+        Initialize the agent.
         
         Args:
-            name: Name of the agent
-            description: Description of the agent
-            **kwargs: Additional configuration options
+            llm_provider: LLM provider name (default: None)
+            memory_provider: Memory provider name (default: None)
+            search_provider: Search provider name (default: None)
+            logging_provider: Logging provider name (default: None)
+            **kwargs: Additional provider-specific parameters
         """
-        # Initialize logger before super().__init__
-        self.logger = logging.getLogger(f"agent.{self.__class__.__name__}")
+        # Setup logging
+        self.logger = logging.getLogger("{{package_name}}.agent")
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
         
-        # Add console handler if not already added
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            
-        super().__init__(
-            name=name,
-            description=description,
-            **kwargs
-        )
+        # Load environment variables
+        self._load_env_vars()
         
-        # Set input and output classes
-        self.input_class = {{agent_class_name}}Input
-        self.output_class = {{agent_class_name}}Output
+        # Initialize Daytona runtime
+        self.daytona_runtime = DaytonaRuntime()
         
-        self.logger.info(f"Initialized {{agent_class_name}} agent")
+        # Create a workspace
+        self.workspace = self.daytona_runtime.create_workspace()
+        
+        # Optional: Upload current project code to the workspace
+        if self.workspace:
+            self.daytona_runtime.upload_code('.')
+            self.logger.info("Daytona workspace created and code uploaded")
+
+{% if llm_provider == "openai" %}
+        # Initialize OpenAI LLM provider
+        self.api_key = os.environ.get("OPENAI_API_KEY")
+        if not self.api_key:
+            self.logger.warning("OpenAI API key not found in environment")
+        else:
+            self.logger.info(f"Found OpenAI API key (length: {len(self.api_key)})")
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key)
+                self.model = os.environ.get("OPENAI_MODEL", "gpt-4o")
+                self.logger.info(f"Initialized OpenAI client with model: {self.model}")
+            except ImportError:
+                self.logger.warning("OpenAI package not available. Install with: pip install openai")
+{% endif %}
+
+{% if llm_provider == "anthropic" %}
+        # Initialize Anthropic LLM provider
+        self.api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not self.api_key:
+            self.logger.warning("Anthropic API key not found in environment")
+        else:
+            self.logger.info(f"Found Anthropic API key (length: {len(self.api_key)})")
+            try:
+                from anthropic import Anthropic
+                self.client = Anthropic(api_key=self.api_key)
+                self.model = os.environ.get("ANTHROPIC_MODEL", "claude-3-opus-20240229")
+                self.logger.info(f"Initialized Anthropic client with model: {self.model}")
+            except ImportError:
+                self.logger.warning("Anthropic package not available. Install with: pip install anthropic")
+{% endif %}
+{% if search_provider == "brave" %}
+        # Initialize Brave Search provider
+        self.brave_api_key = os.environ.get("BRAVE_API_KEY")
+        if not self.brave_api_key:
+            self.logger.warning("Brave API key not found in environment")
+        else:
+            self.logger.info(f"Found Brave API key (length: {len(self.brave_api_key)})")
+{% endif %}
+
+{% if logging_provider == "logfire" %}
+        # Initialize LogFire logging provider
+        self.logfire_api_key = os.environ.get("LOGFIRE_API_KEY")
+        if not self.logfire_api_key:
+            self.logger.warning("LogFire API key not found in environment")
+        else:
+            self.logger.info(f"Found LogFire API key (length: {len(self.logfire_api_key)})")
+            try:
+                import logfire
+                logfire.configure(token=self.logfire_api_key, send_to_logfire=True)
+                self.logger.info("Initialized LogFire logging")
+            except ImportError:
+                self.logger.warning("LogFire package not available. Install with: pip install logfire")
+{% endif %}
+        
+        # Load MCP configuration
+        self.mcp_config = self._load_mcp_config()
+        if self.mcp_config:
+            self.logger.info("Loaded MCP configuration")
+        else:
+            self.logger.warning("MCP configuration not found")
+        
+        # Initialize conversation history
+        self.conversation_history = []
+        
+        # Initialize providers
+        self.llm_provider = llm_provider
+        self.memory_provider = memory_provider
+        self.search_provider = search_provider
+        self.logging_provider = logging_provider
+        
+        # Initialize memory if provider specified
+        self.memory = None
+        if memory_provider == "chromadb":
+            self._init_chromadb_memory()
+        
+        # Initialize logging if provider specified
+        if logging_provider == "logfire":
+            self._init_logfire_logging()
+        
+        self.logger.info("Initialized {{agent_class_name}}")
     
-    def _init_llm(self):
-        """Initialize LLM provider."""
-        {% if llm_provider == "none" %}
-        self.logger.info("No LLM provider configured")
-        return None
-        {% elif llm_provider == "openai" %}
-        self.logger.info("Initializing OpenAI provider")
+    def _load_env_vars(self):
+        """Load environment variables from .env file."""
         try:
-            from openai import OpenAI
-            api_key = os.environ.get("OPENAI_API_KEY")
-            if not api_key:
-                self.logger.warning("OpenAI API key not found")
-                return None
-            
-            return OpenAI(api_key=api_key)
+            from dotenv import load_dotenv
+            env_file = '.env'
+            if os.path.exists(env_file):
+                load_dotenv(env_file)
+                self.logger.info(f"Loaded environment variables from {env_file}")
         except ImportError:
-            self.logger.warning("OpenAI package not installed")
-            return None
-        {% elif llm_provider == "anthropic" %}
-        self.logger.info("Initializing Anthropic provider")
-        try:
-            import anthropic
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-            if not api_key:
-                self.logger.warning("Anthropic API key not found")
-                return None
-            
-            return anthropic.Anthropic(api_key=api_key)
-        except ImportError:
-            self.logger.warning("Anthropic package not installed")
-            return None
-        {% elif llm_provider == "ollama" %}
-        self.logger.info("Initializing Ollama provider")
-        try:
-            import httpx
-            base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-            return {"client": httpx.AsyncClient(), "base_url": base_url}
-        except ImportError:
-            self.logger.warning("httpx package not installed")
-            return None
-        {% else %}
-        self.logger.info("Using default LLM provider")
-        return None
-        {% endif %}
+            self.logger.warning("dotenv package not available")
     
-    def _init_search(self):
-        """Initialize search provider."""
-        {% if search_provider == "none" %}
-        self.logger.info("No search provider configured")
-        return None
-        {% elif search_provider == "brave" %}
-        self.logger.info("Initializing Brave Search provider")
+    def _load_mcp_config(self):
+        """Load MCP configuration from .mcp.json file."""
+        mcp_file = '.mcp.json'
         try:
-            import httpx
-            api_key = os.environ.get("BRAVE_API_KEY")
-            if not api_key:
-                self.logger.warning("Brave API key not found")
+            if os.path.exists(mcp_file):
+                with open(mcp_file, 'r') as f:
+                    return json.load(f)
+            else:
+                self.logger.warning(f"MCP configuration file {mcp_file} not found")
                 return None
-            
-            return {"client": httpx.AsyncClient(), "api_key": api_key}
-        except ImportError:
-            self.logger.warning("httpx package not installed")
+        except Exception as e:
+            self.logger.error(f"Error loading MCP configuration: {e}")
             return None
-        {% elif search_provider == "browserbase" %}
-        self.logger.info("Initializing BrowserBase provider")
-        try:
-            import httpx
-            api_key = os.environ.get("BROWSERBASE_API_KEY")
-            if not api_key:
-                self.logger.warning("BrowserBase API key not found")
-                return None
-            
-            return {"client": httpx.AsyncClient(), "api_key": api_key}
-        except ImportError:
-            self.logger.warning("httpx package not installed")
-            return None
-        {% elif search_provider == "google" %}
-        self.logger.info("Initializing Google Search provider")
-        try:
-            from googleapiclient.discovery import build
-            api_key = os.environ.get("GOOGLE_API_KEY")
-            cse_id = os.environ.get("GOOGLE_CSE_ID")
-            if not api_key or not cse_id:
-                self.logger.warning("Google API key or CSE ID not found")
-                return None
-            
-            return build("customsearch", "v1", developerKey=api_key)
-        except ImportError:
-            self.logger.warning("google-api-python-client package not installed")
-            return None
-        {% else %}
-        self.logger.info("Using default search provider")
-        return None
-        {% endif %}
     
-    def _init_memory(self):
-        """Initialize memory provider."""
-        {% if memory_provider == "none" %}
-        self.logger.info("No memory provider configured")
-        return None
-        {% elif memory_provider == "chromadb" %}
-        self.logger.info("Initializing ChromaDB provider")
+    def _init_chromadb_memory(self):
+        """Initialize ChromaDB memory provider."""
         try:
             import chromadb
-            from chromadb.utils import embedding_functions
             
-            # Initialize embedding function
-            openai_api_key = os.environ.get("OPENAI_API_KEY")
-            embedding_function = None
-            if openai_api_key:
-                embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-                    api_key=openai_api_key,
-                    model_name="text-embedding-3-small"
-                )
+            self.logger.info("Initializing ChromaDB memory provider")
             
-            client = chromadb.Client()
-            collection = client.get_or_create_collection(
-                name="{{package_name}}_memory",
-                embedding_function=embedding_function
-            )
-            return collection
-        except ImportError:
-            self.logger.warning("chromadb package not installed")
-            return None
-        {% elif memory_provider == "supabase" %}
-        self.logger.info("Initializing Supabase provider")
-        try:
-            from supabase import create_client
+            # Get configuration from environment variables or defaults
+            collection_name = os.environ.get("CHROMADB_COLLECTION", "{{package_name}}_memory")
+            persist_dir = os.environ.get("CHROMADB_PERSIST_DIR", "./.chroma")
             
-            url = os.environ.get("SUPABASE_URL")
-            key = os.environ.get("SUPABASE_KEY")
-            if not url or not key:
-                self.logger.warning("Supabase URL or key not found")
-                return None
+            # Initialize the client
+            self.memory_client = chromadb.PersistentClient(path=persist_dir)
             
-            return create_client(url, key)
-        except ImportError:
-            self.logger.warning("supabase package not installed")
-            return None
-        {% elif memory_provider == "pinecone" %}
-        self.logger.info("Initializing Pinecone provider")
-        try:
-            from pinecone import Pinecone
-            
-            api_key = os.environ.get("PINECONE_API_KEY")
-            environment = os.environ.get("PINECONE_ENVIRONMENT")
-            if not api_key or not environment:
-                self.logger.warning("Pinecone API key or environment not found")
-                return None
-            
-            pc = Pinecone(api_key=api_key, environment=environment)
-            
-            # Get or create index
-            index_name = "{{package_name}}_memory"
+            # Get or create collection
             try:
-                index = pc.Index(index_name)
+                self.memory_collection = self.memory_client.get_collection(name=collection_name)
+                self.logger.info(f"Using existing collection: {collection_name}")
             except:
-                pc.create_index(
-                    name=index_name,
-                    dimension=1536,  # OpenAI embedding dimension
-                    metric="cosine"
-                )
-                index = pc.Index(index_name)
+                self.memory_collection = self.memory_client.create_collection(name=collection_name)
+                self.logger.info(f"Created new collection: {collection_name}")
             
-            return index
+            # Set memory mode
+            self.memory_mode = "direct"
+            self.memory = True
+            self.logger.info("Successfully initialized ChromaDB memory")
+                
         except ImportError:
-            self.logger.warning("pinecone package not installed")
-            return None
-        {% else %}
-        self.logger.info("Using default memory provider")
-        return None
-        {% endif %}
+            self.logger.warning("ChromaDB package not available. Install with: pip install chromadb")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize ChromaDB memory: {e}")
     
-    def _init_logging(self):
-        """Initialize logging provider."""
-        {% if logging_provider == "none" %}
-        self.logger.info("No logging provider configured")
-        return None
-        {% elif logging_provider == "logfire" %}
-        self.logger.info("Initializing LogFire provider")
+    def _init_logfire_logging(self):
+        """Initialize LogFire logging provider."""
         try:
             import logfire
             
-            api_key = os.environ.get("LOGFIRE_API_KEY")
-            if not api_key:
-                self.logger.warning("LogFire API key not found")
-                return None
+            # Fetch API key from environment
+            logfire_api_key = os.environ.get('LOGFIRE_API_KEY')
             
-            logfire.init(api_key)
-            return logfire
-        except ImportError:
-            self.logger.warning("logfire package not installed")
-            return None
-        {% elif logging_provider == "prometheus" %}
-        self.logger.info("Initializing Prometheus provider")
-        try:
-            from prometheus_client import Counter, Histogram, start_http_server
+            if not logfire_api_key:
+                self.logger.warning("No Logfire API key found!")
+                return
             
-            # Start metrics server on port 8000
-            start_http_server(8000)
-            
-            # Create metrics
-            metrics = {
-                "requests_total": Counter("agent_requests_total", "Total number of requests"),
-                "request_duration": Histogram("agent_request_duration_seconds", "Request duration in seconds"),
-                "token_usage": Counter("agent_token_usage_total", "Total number of tokens used", ["type"])
-            }
-            
-            return metrics
-        except ImportError:
-            self.logger.warning("prometheus_client package not installed")
-            return None
-        {% elif logging_provider == "langfuse" %}
-        self.logger.info("Initializing Langfuse provider")
-        try:
-            import langfuse
-            
-            public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
-            secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
-            if not public_key or not secret_key:
-                self.logger.warning("Langfuse keys not found")
-                return None
-            
-            client = langfuse.Langfuse(
-                public_key=public_key,
-                secret_key=secret_key
+            # Configure with project and token
+            logfire.configure(
+                token=logfire_api_key,
+                send_to_logfire=True,
             )
-            return client
+            
+            # Test logging
+            logfire.info("Logfire initialized successfully")
+            
+            # Redirect standard logging to Logfire
+            handler = logfire.LogfireLoggingHandler()
+            self.logger.addHandler(handler)
+            
+            self.logger.info("Logfire logging fully configured")
+        
         except ImportError:
-            self.logger.warning("langfuse package not installed")
-            return None
-        {% else %}
-        self.logger.info("Using default logging provider")
-        return None
-        {% endif %}
+            self.logger.warning("Logfire package not installed. Run: pip install logfire")
+        except Exception as e:
+            self.logger.error(f"Logfire initialization error: {e}")
     
-    def _init_mcp(self):
-        """Initialize MCP provider."""
+    async def _call_mcp(self, server_id, endpoint, data):
+        """Call an MCP server."""
+        if not self.mcp_config or "mcpServers" not in self.mcp_config:
+            self.logger.error("MCP configuration not found or invalid")
+            return None
+        
+        if server_id not in self.mcp_config["mcpServers"]:
+            self.logger.error(f"Server {server_id} not found in MCP configuration")
+            return None
+        
+        server_config = self.mcp_config["mcpServers"][server_id]
+        server_url = server_config.get("url")
+        
+        if not server_url:
+            self.logger.error(f"URL not found for server {server_id}")
+            return None
+        
+        # Get authentication headers
+        headers = {"Content-Type": "application/json"}
+        
+        # Handle authentication based on server config
+        if "auth" in server_config:
+            auth_config = server_config["auth"]
+            auth_type = auth_config.get("type")
+            
+            if auth_type == "bearer":
+                api_key = os.environ.get(auth_config.get("env_var"))
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                    self.logger.info(f"Added Bearer token for {server_id}")
+                else:
+                    self.logger.warning(f"API key not found in environment variable {auth_config.get('env_var')}")
+            
+            elif auth_type == "api_key":
+                api_key = os.environ.get(auth_config.get("env_var"))
+                header_name = auth_config.get("header_name", "X-API-Key")
+                
+                if api_key:
+                    headers[header_name] = api_key
+                    self.logger.info(f"Added API key with header {header_name} for {server_id}")
+                else:
+                    self.logger.warning(f"API key not found in environment variable {auth_config.get('env_var')}")
+        
+        # Check for custom endpoints config
+        if "endpoints" in server_config and endpoint in server_config["endpoints"]:
+            # Use the custom endpoint path from the config
+            endpoint_path = server_config["endpoints"][endpoint]
+            
+            # Create a copy of the data to avoid changing it during iteration
+            data_copy = None
+            if isinstance(data, dict):
+                data_copy = data.copy()
+            
+            # Replace placeholders in the endpoint path if needed
+            if "{" in endpoint_path and "}" in endpoint_path and data_copy:
+                for key, value in data_copy.items():
+                    placeholder = "{" + key + "}"
+                    if placeholder in endpoint_path:
+                        endpoint_path = endpoint_path.replace(placeholder, str(value))
+                        # Remove from data since it's now in the URL
+                        if key in data:
+                            data.pop(key)
+            
+            url = f"{server_url.rstrip('/')}{endpoint_path}"
+            self.logger.info(f"Using custom endpoint path for {endpoint}: {endpoint_path}")
+        else:
+            # Use standard endpoint path
+            url = f"{server_url}/{endpoint.lstrip('/')}"
+        
+        # Special handling for search capability
+        capability = server_config.get("capability", "").lower()
+        if capability == "search" and isinstance(data, dict) and "query" in data:
+            # For search, convert to query params and use GET
+            params = {"q": data["query"]}
+            if "count" in data:
+                params["count"] = data["count"]
+            
+            self.logger.info(f"Sending search query: {params['q']}")
+            
+            try:
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                    self.logger.info(f"Calling search API at {url}")
+                    
+                    # Log headers (mask sensitive info)
+                    safe_headers = {k: ("***" if k.lower() in ["authorization", "x-subscription-token", "x-api-key"] else v) for k, v in headers.items()}
+                    self.logger.info(f"Request headers: {json.dumps(safe_headers)}")
+                    
+                    # Ensure the URL is correctly formed
+                    url = url.rstrip('/')  # Remove any trailing slash
+                    
+                    # Use GET for search
+                    response = await client.get(
+                        url,
+                        headers=headers,
+                        params=params
+                    )
+                    
+                    self.logger.info(f"Response status code: {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        return response.json()
+                    else:
+                        self.logger.error(f"Error from search API: {response.status_code} - {response.text}")
+                        return {"error": f"Error {response.status_code}: {response.text}"}
+            except Exception as e:
+                self.logger.error(f"Error calling search API: {e}")
+                return {"error": str(e)}
+        
+        # Standard POST request for other capabilities
         try:
-            from agentscaffold.providers.mcp import load_mcp_servers
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                self.logger.info(f"Calling MCP server {server_id} at {url}")
+                
+                # Log headers (mask sensitive info)
+                safe_headers = {k: ("***" if k.lower() in ["authorization", "x-subscription-token", "x-api-key"] else v) for k, v in headers.items()}
+                self.logger.info(f"Request headers: {json.dumps(safe_headers)}")
+                
+                response = await client.post(
+                    url,
+                    headers=headers,
+                    json=data
+                )
+                
+                self.logger.info(f"Response status code: {response.status_code}")
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    self.logger.error(f"Error from MCP server: {response.status_code} - {response.text}")
+                    return {"error": f"Error {response.status_code}: {response.text}"}
+        except Exception as e:
+            self.logger.error(f"Error calling MCP server: {e}")
+            return {"error": str(e)}
             
-            # Load MCP servers
-            mcp_servers = load_mcp_servers(".")
-            if not mcp_servers:
-                self.logger.info("No MCP servers found")
-                return None
+    async def search(self, query: str) -> Optional[Dict[str, Any]]:
+        """
+        Call the search provider via MCP and return the search results.
+        """
+        # Use the MCP key "search" as configured in your MCP configuration
+        if not self.mcp_config or "mcpServers" not in self.mcp_config or "search" not in self.mcp_config["mcpServers"]:
+            self.logger.error("Search provider not configured in MCP")
+            return {"error": "Search provider not configured"}
+
+        try:
+            self.logger.info(f"Searching for: {query}")
             
-            self.logger.info(f"Found {len(mcp_servers)} MCP servers")
-            return mcp_servers
-        except ImportError:
-            self.logger.warning("MCP module not available")
+            # Call the search provider using the MCP system
+            search_response = await self._call_mcp(
+                "search",
+                "search",  # This will use the custom endpoint from the config
+                {"query": query, "count": 5}
+            )
+            
+            if search_response:
+                # Check if there's an error
+                if isinstance(search_response, dict) and "error" in search_response:
+                    self.logger.error(f"Search error: {search_response['error']}")
+                    return search_response
+                
+                self.logger.info("Search successful")
+                return search_response
+            else:
+                self.logger.error("No response from search provider")
+                return {"error": "No response from search provider"}
+        except Exception as e:
+            self.logger.error(f"Error during search: {e}")
+            return {"error": f"Search error: {str(e)}"}
+
+    # Memory methods
+    async def remember(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Store text in memory with optional metadata"""
+        try:
+            # Generate unique ID for the memory entry
+            import hashlib
+            memory_id = hashlib.md5(text.encode()).hexdigest()
+
+            # Ensure we always have metadata
+            if metadata is None:
+                metadata = {
+                    "type": "general",
+                    "timestamp": datetime.now().isoformat()
+                }
+
+            # If we have direct ChromaDB access, use it
+            if hasattr(self, 'memory_collection'):
+                self.logger.debug("Using direct ChromaDB memory storage")
+                try:
+                    self.memory_collection.add(
+                        documents=[text],
+                        metadatas=[metadata],  # Now guaranteed to be non-empty
+                        ids=[memory_id]
+                    )
+                    self.logger.info(f"Successfully stored memory with ID: {memory_id}")
+                    return memory_id
+                except Exception as e:
+                    self.logger.error(f"ChromaDB storage failed: {e}")
+                    return None
+
+            # Fallback to MCP method
+            if self.mcp_config and "mcpServers" in self.mcp_config and "chromadb" in self.mcp_config["mcpServers"]:
+                self.logger.debug("Attempting MCP memory storage")
+                response = await self._call_mcp(
+                    "chromadb",
+                    "add",
+                    {
+                        "collection_id": "my_agent_memory",
+                        "ids": [memory_id],
+                        "documents": [text],
+                        "metadatas": [metadata]  # Now guaranteed to be non-empty
+                    }
+                )
+
+                if response and "error" not in response:
+                    self.logger.info(f"MCP memory storage successful: {memory_id}")
+                    return memory_id
+                else:
+                    self.logger.error(f"MCP memory storage failed: {response}")
+                    return None
+            
+            self.logger.warning("No memory provider available")
+            return None
+        except Exception as e:
+            self.logger.error(f"Memory storage error: {e}")
             return None
     
-    async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    
+    async def recall(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
+        """Retrieve memories matching the query"""
+        try:
+            # If we have direct ChromaDB access, use it
+            if hasattr(self, 'memory_collection'):
+                self.logger.debug("Using direct ChromaDB memory query")
+                # Clean the query for better matching
+                cleaned_query = query.replace("?", "").strip().lower()
+                self.logger.info(f"Searching memory with cleaned query: {cleaned_query}")
+                try:
+                    results = self.memory_collection.query(
+                        query_texts=[cleaned_query],  # Use cleaned query
+                        n_results=n_results
+                    )
+                    
+                    formatted_results = []
+                    if results and 'documents' in results and len(results['documents']) > 0:
+                        for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
+                            formatted_results.append({
+                                'text': doc,
+                                'metadata': metadata
+                            })
+                    
+                    self.logger.info(f"Retrieved {len(formatted_results)} memories")
+                    return formatted_results
+                except Exception as e:
+                    self.logger.error(f"ChromaDB query failed: {e}")
+                    return []
+
+            # Fallback to MCP method
+            if self.mcp_config and "mcpServers" in self.mcp_config and "chromadb" in self.mcp_config["mcpServers"]:
+                self.logger.debug("Attempting MCP memory query")
+                cleaned_query = query.replace("?", "").strip().lower()
+                response = await self._call_mcp(
+                    "chromadb",
+                    "query",
+                    {
+                        "collection_id": "my_agent_memory",
+                        "query_texts": [cleaned_query],
+                        "n_results": n_results
+                    }
+                )
+
+                if response and "documents" in response:
+                    self.logger.info("MCP memory query successful")
+                    return response['documents']
+                else:
+                    self.logger.error(f"MCP memory query failed: {response}")
+                    return []
+            
+            self.logger.warning("No memory provider available")
+            return []
+        except Exception as e:
+            self.logger.error(f"Memory recall error: {e}")
+            return []
+     
+    
+   
+    
+    
+    async def get_memory_context(self, query: str, n_results: int = 3) -> str:
         """
-        Process input data and generate output.
+        Get formatted context from memory based on a query.
         
         Args:
-            input_data: Input data dictionary with 'message' key and optional context
+            query: Query text
+            n_results: Number of results to include
             
         Returns:
-            Dictionary with 'response' key and optional metadata
+            Formatted context string
         """
-        self.logger.info(f"Processing message: {input_data.get('message', '')}")
+        try:
+            # Get memories
+            memories = await self.recall(query, n_results=n_results)
+            
+            if not memories:
+                return ""
+            
+            # Format the context
+            context = f"Relevant context from memory for '{query}':\n\n"
+            for i, memory in enumerate(memories, 1):
+                context += f"{i}. {memory['text']}\n"
+                
+                # Add metadata timestamp if available
+                if memory.get('metadata') and memory['metadata'].get('timestamp'):
+                    timestamp = memory['metadata']['timestamp']
+                    context += f"   Timestamp: {timestamp}\n"
+                    
+                context += "\n"
+                
+            return context
+            
+        except Exception as e:
+            self.logger.error(f"Error getting memory context: {e}")
+            return ""
+    
+    
+    async def run(self, input_text: str, **kwargs) -> str:
+        """
+        Run the agent with the given input.
         
-        # Check for special commands
-        message = input_data.get("message", "")
+        Args:
+            input_text: Input text to process
+            **kwargs: Additional parameters
+            
+        Returns:
+            Agent response
+        """
+        # Check for memory commands
+        input_text = input_text.strip()
+        if input_text.lower().startswith("remember "):
+            # Extract the text to remember
+            text = input_text[len("remember "):].strip()
+            if not text:
+                return "Please provide text to remember."
+                
+            # Add default metadata with timestamp for explicit memories
+            default_metadata = {
+                "type": "explicit_memory",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            memory_id = await self.remember(text, default_metadata)
+            if memory_id:
+                return f"I've stored that in memory with ID: {memory_id}"
+            else:
+                return "I wasn't able to store that in memory."
+                
+        elif input_text.lower().startswith("recall "):
+            # Extract the query
+            query = input_text[len("recall "):].strip()
+            if not query:
+                return "Please provide a query to recall from memory."
+                
+            memories = await self.recall(query)
+            
+            if memories:
+                response = f"Here's what I found in memory for '{query}':\n\n"
+                for i, memory in enumerate(memories, 1):
+                    response += f"{i}. {memory['text']}\n"
+                    
+                    # Add metadata timestamp if available
+                    if memory.get('metadata') and memory['metadata'].get('timestamp'):
+                        timestamp = memory['metadata']['timestamp']
+                        response += f"   Timestamp: {timestamp}\n"
+                        
+                    response += "\n"
+                    
+                return response
+            else:
+                return f"I couldn't find anything in memory related to '{query}'."
         
-        # Handle search queries
-        search_query = input_data.get("search_query", "")
-        if search_query or any(kw in message.lower() for kw in ["search", "look up", "find"]):
-            query = search_query or message
+        elif input_text.lower() == "debug memory":
+            try:
+                if hasattr(self, 'memory_collection'):
+                    # Get all items in the collection (limited to first 10)
+                    results = self.memory_collection.peek(limit=10)
+                    if not results or not results.get('documents'):
+                        return "Memory is empty."
+                        
+                    response = "Current memory contents:\n\n"
+                    for i, (doc, metadata) in enumerate(zip(results['documents'], results['metadatas']), 1):
+                        response += f"{i}. {doc[:100]}{'...' if len(doc) > 100 else ''}\n"
+                        if metadata:
+                            response += f"   Metadata: {json.dumps(metadata)}\n"
+                        response += "\n"
+                        
+                    return response
+                else:
+                    return "Memory collection not available."
+            except Exception as e:
+                return f"Error debugging memory: {str(e)}"
+                
+        elif input_text.lower() == "reset memory":
+            try:
+                if hasattr(self, 'memory_client'):
+                    # Delete and recreate collection
+                    collection_name = os.environ.get("CHROMADB_COLLECTION", "my_agent_memory")
+                    try:
+                        self.memory_client.delete_collection(collection_name)
+                    except:
+                        pass
+                    self.memory_collection = self.memory_client.create_collection(name=collection_name)
+                    return "Memory collection has been reset."
+                else:
+                    return "Memory client not available."
+            except Exception as e:
+                return f"Error resetting memory: {str(e)}"
+        
+        # Check if the input is a direct search command
+        elif input_text.lower().startswith("search "):
+            # Extract the search query by removing the "search " prefix
+            query = input_text[len("search "):].strip()
+            self.logger.info(f"Direct search command detected, searching for: {query}")
             search_results = await self.search(query)
             
             if search_results:
-                formatted_results = "\n".join([
-                    f"{i+1}. {result.get('title', 'No title')}\n   {result.get('url', 'No URL')}\n   {result.get('snippet', 'No snippet')}"
-                    for i, result in enumerate(search_results[:5])
-                ])
-                
-                response = f"Here are search results for '{query}':\n\n{formatted_results}"
-                return {"response": response, "search_results": search_results}
-            else:
-                return {"response": f"I couldn't find any results for '{query}'.", "search_results": []}
-        
-        # Handle memory retrieval
-        if input_data.get("retrieve_context", False) or any(kw in message.lower() for kw in ["remember", "memory", "previous"]):
-            context_query = input_data.get("context_query", message)
-            memory_context = await self.remember(context_query)
-            
-            if memory_context:
-                response = f"Here's what I remember:\n\n{memory_context}"
-                return {"response": response, "memory_context": memory_context}
-            else:
-                return {"response": "I don't have any relevant memories.", "memory_context": ""}
-        
-        # Default to LLM processing
-        {% if llm_provider == "none" %}
-        # No LLM provider configured, return echo response
-        return {"response": f"Received message: {message}", "metadata": {"echo": True}}
-        {% elif llm_provider == "openai" %}
-        if not self.llm_provider:
-            return {"response": "OpenAI provider not initialized", "metadata": {"error": True}}
-        
-        try:
-            # Get memory context if available
-            memory_context = await self.remember("")
-            
-            # Prepare system message
-            system_message = f"You are {self.name}, {self.description}."
-            if memory_context:
-                system_message += f"\n\nPrevious conversation context:\n{memory_context}"
-            
-            # Call OpenAI API
-            completion = await asyncio.to_thread(
-                self.llm_provider.chat.completions.create,
-                model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
-                messages=[
-                    {"role": "system", "content": system_message},
-                    {"role": "user", "content": message}
-                ]
-            )
-            
-            response_text = completion.choices[0].message.content
-            
-            # Store in memory if requested
-            if input_data.get("store_in_memory", True):
-                await self.store_memory({
-                    "role": "user",
-                    "content": message
-                })
-                await self.store_memory({
-                    "role": "assistant",
-                    "content": response_text
-                })
-            
-            return {
-                "response": response_text,
-                "metadata": {
-                    "model": completion.model,
-                    "usage": completion.usage.model_dump() if hasattr(completion, "usage") else {}
-                }
-            }
-        except Exception as e:
-            self.logger.error(f"Error calling OpenAI: {e}")
-            return {"response": f"Error processing your message: {str(e)}", "metadata": {"error": True}}
-        {% elif llm_provider == "anthropic" %}
-        if not self.llm_provider:
-            return {"response": "Anthropic provider not initialized", "metadata": {"error": True}}
-        
-        try:
-            # Get memory context if available
-            memory_context = await self.remember("")
-            
-            # Prepare system message
-            system_message = f"You are {self.name}, {self.description}."
-            if memory_context:
-                system_message += f"\n\nPrevious conversation context:\n{memory_context}"
-            
-            # Call Anthropic API
-            response = await self.llm_provider.messages.create(
-                model=os.environ.get("ANTHROPIC_MODEL", "claude-3-opus-20240229"),
-                max_tokens=1024,
-                system=system_message,
-                messages=[
-                    {"role": "user", "content": message}
-                ]
-            )
-            
-            response_text = response.content[0].text
-            
-            # Store in memory if requested
-            if input_data.get("store_in_memory", True):
-                await self.store_memory({
-                    "role": "user",
-                    "content": message
-                })
-                await self.store_memory({
-                    "role": "assistant",
-                    "content": response_text
-                })
-            
-            return {
-                "response": response_text,
-                "metadata": {
-                    "model": response.model,
-                    "usage": {
-                        "input_tokens": response.usage.input_tokens,
-                        "output_tokens": response.usage.output_tokens
-                    }
-                }
-            }
-        except Exception as e:
-            self.logger.error(f"Error calling Anthropic: {e}")
-            return {"response": f"Error processing your message: {str(e)}", "metadata": {"error": True}}
-        {% elif llm_provider == "ollama" %}
-        if not self.llm_provider:
-            return {"response": "Ollama provider not initialized", "metadata": {"error": True}}
-        
-        try:
-            client = self.llm_provider["client"]
-            base_url = self.llm_provider["base_url"]
-            
-            # Get memory context if available
-            memory_context = await self.remember("")
-            
-            # Prepare system message
-            system_message = f"You are {self.name}, {self.description}."
-            if memory_context:
-                system_message += f"\n\nPrevious conversation context:\n{memory_context}"
-            
-            # Call Ollama API
-            response = await client.post(
-                f"{base_url}/api/generate",
-                json={
-                    "model": os.environ.get("OLLAMA_MODEL", "llama3"),
-                    "prompt": message,
-                    "system": system_message
-                },
-                timeout=60.0
-            )
-            
-            response_json = response.json()
-            response_text = response_json.get("response", "")
-            
-            # Store in memory if requested
-            if input_data.get("store_in_memory", True):
-                await self.store_memory({
-                    "role": "user",
-                    "content": message
-                })
-                await self.store_memory({
-                    "role": "assistant",
-                    "content": response_text
-                })
-            
-            return {
-                "response": response_text,
-                "metadata": {
-                    "model": response_json.get("model", ""),
-                    "total_tokens": response_json.get("total_tokens", 0)
-                }
-            }
-        except Exception as e:
-            self.logger.error(f"Error calling Ollama: {e}")
-            return {"response": f"Error processing your message: {str(e)}", "metadata": {"error": True}}
-        {% else %}
-        # No specific LLM provider handling, use default implementation
-        return await super().process(input_data)
-        {% endif %}
-    
-    async def search(self, query: str) -> List[Dict[str, Any]]:
-        """
-        Search for information using the configured search provider.
-        
-        Args:
-            query: Search query
-            
-        Returns:
-            List of search results
-        """
-        if not query:
-            return []
-        
-        self.logger.info(f"Searching for: {query}")
-        
-        {% if search_provider == "none" %}
-        # No search provider configured
-        return []
-        {% elif search_provider == "brave" %}
-        if not self.search_provider:
-            return []
-        
-        try:
-            client = self.search_provider["client"]
-            api_key = self.search_provider["api_key"]
-            
-            url = "https://api.search.brave.com/res/v1/web/search"
-            headers = {"Accept": "application/json", "X-Subscription-Token": api_key}
-            params = {"q": query, "count": 5}
-            
-            response = await client.get(url, headers=headers, params=params)
-            data = response.json()
-            
-            if "web" not in data or "results" not in data["web"]:
-                return []
-            
-            results = []
-            for result in data["web"]["results"]:
-                results.append({
-                    "title": result.get("title", ""),
-                    "url": result.get("url", ""),
-                    "snippet": result.get("description", "")
-                })
-            
-            return results
-        except Exception as e:
-            self.logger.error(f"Error searching with Brave: {e}")
-            return []
-        {% elif search_provider == "browserbase" %}
-        if not self.search_provider:
-            return []
-        
-        try:
-            client = self.search_provider["client"]
-            api_key = self.search_provider["api_key"]
-            
-            url = "https://api.browserbase.com/v1/search"
-            headers = {"Authorization": f"Bearer {api_key}"}
-            payload = {"query": query, "limit": 5}
-            
-            response = await client.post(url, headers=headers, json=payload)
-            data = response.json()
-            
-            results = []
-            for result in data.get("results", []):
-                results.append({
-                    "title": result.get("title", ""),
-                    "url": result.get("url", ""),
-                    "snippet": result.get("content", "")[:200] if result.get("content") else ""
-                })
-            
-            return results
-        except Exception as e:
-            self.logger.error(f"Error searching with BrowserBase: {e}")
-            return []
-        {% elif search_provider == "google" %}
-        if not self.search_provider:
-            return []
-        
-        try:
-            # Run Google search in a thread to avoid blocking
-            def perform_search():
-                cse_id = os.environ.get("GOOGLE_CSE_ID")
-                result = self.search_provider.cse().list(q=query, cx=cse_id, num=5).execute()
-                return result.get("items", [])
-            
-            search_results = await asyncio.to_thread(perform_search)
-            
-            results = []
-            for item in search_results:
-                results.append({
-                    "title": item.get("title", ""),
-                    "url": item.get("link", ""),
-                    "snippet": item.get("snippet", "")
-                })
-            
-            return results
-        except Exception as e:
-            self.logger.error(f"Error searching with Google: {e}")
-            return []
-        {% else %}
-        # No search provider configured, use default implementation
-        return await super().search(query)
-        {% endif %}
-    
-    async def remember(self, query: str = "") -> str:
-        """
-        Retrieve relevant memories based on the query.
-        
-        Args:
-            query: Optional query to filter memories
-            
-        Returns:
-            String containing relevant memories
-        """
-        self.logger.info(f"Retrieving memories for: {query or 'recent items'}")
-        
-        {% if memory_provider == "none" %}
-        # No memory provider configured
-        return ""
-        {% elif memory_provider == "chromadb" %}
-        if not self.memory_provider:
-            return ""
-        
-        try:
-            # Query with empty query returns most recent items
-            if not query:
-                # Just retrieve the most recent items
-                # In a real implementation, this would be more sophisticated
-                return "No specific memories found for an empty query."
-            
-            # Query the collection
-            results = self.memory_provider.query(
-                query_texts=[query],
-                n_results=3
-            )
-            
-            if not results["documents"] or not results["documents"][0]:
-                return ""
-            
-            # Format results
-            memories = []
-            for i, doc in enumerate(results["documents"][0]):
-                metadata = results["metadatas"][0][i] if i < len(results["metadatas"][0]) else {}
-                role = metadata.get("role", "")
-                if role:
-                    memories.append(f"{role.capitalize()}: {doc}")
-                else:
-                    memories.append(doc)
-            
-            return "\n\n".join(memories)
-        except Exception as e:
-            self.logger.error(f"Error retrieving from ChromaDB: {e}")
-            return ""
-        {% elif memory_provider == "supabase" %}
-        if not self.memory_provider:
-            return ""
-        
-        try:
-            # Query the database
-            if query:
-                # Use full-text search if there's a query
-                response = await self.memory_provider.table("memories").select("*").textSearch(
-                    "content", query
-                ).limit(5).execute()
-            else:
-                # Get most recent entries otherwise
-                response = await self.memory_provider.table("memories").select("*").order(
-                    "created_at", desc=True
-                ).limit(5).execute()
-            
-            if not response.data:
-                return ""
-            
-            # Format results
-            memories = []
-            for item in response.data:
-                role = item.get("role", "")
-                content = item.get("content", "")
-                if role and content:
-                    memories.append(f"{role.capitalize()}: {content}")
-                elif content:
-                    memories.append(content)
-            
-            return "\n\n".join(memories)
-        except Exception as e:
-            self.logger.error(f"Error retrieving from Supabase: {e}")
-            return ""
-        {% elif memory_provider == "pinecone" %}
-        if not self.memory_provider:
-            return ""
-        
-        try:
-            # For Pinecone, we need embeddings
-            import numpy as np
-            
-            # Check if OpenAI is available for embeddings
-            try:
-                from openai import OpenAI
-                
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not api_key:
-                    self.logger.warning("OpenAI API key not found, cannot generate embeddings")
-                    return ""
-                
-                openai_client = OpenAI(api_key=api_key)
-                
-                # Generate embedding for query
-                if query:
-                    embedding_response = openai_client.embeddings.create(
-                        input=query,
-                        model="text-embedding-3-small"
-                    )
-                    vector = embedding_response.data[0].embedding
-                else:
-                    # Use a random vector for empty query (just to get recent items)
-                    vector = list(np.random.uniform(-1, 1, 1536))
+                # Check if there's an error message
+                if "error" in search_results:
+                    return f"Search error: {search_results['error']}"
                     
-                # Query Pinecone
-                query_response = self.memory_provider.query(
-                    vector=vector,
-                    top_k=5,
-                    include_metadata=True
-                )
-                
-                if not query_response["matches"]:
-                    return ""
-                
-                # Format results
-                memories = []
-                for match in query_response["matches"]:
-                    metadata = match.get("metadata", {})
-                    role = metadata.get("role", "")
-                    content = metadata.get("content", "")
-                    if role and content:
-                        memories.append(f"{role.capitalize()}: {content}")
-                    elif content:
-                        memories.append(content)
-                
-                return "\n\n".join(memories)
-            except ImportError:
-                self.logger.warning("OpenAI package not installed, cannot generate embeddings")
-                return ""
-        except Exception as e:
-            self.logger.error(f"Error retrieving from Pinecone: {e}")
-            return ""
-        {% else %}
-        # No memory provider configured, use default implementation
-        return await super().remember(query)
-        {% endif %}
-    
-    async def store_memory(self, data: Dict[str, Any]) -> bool:
-        """
-        Store data in memory.
-        
-        Args:
-            data: Data to store
-            
-        Returns:
-            Success or failure
-        """
-        if not data:
-            return False
-        
-        self.logger.info("Storing in memory")
-        
-        {% if memory_provider == "none" %}
-        # No memory provider configured
-        return False
-        {% elif memory_provider == "chromadb" %}
-        if not self.memory_provider:
-            return False
-        
-        try:
-            # Format document
-            role = data.get("role", "")
-            content = data.get("content", "")
-            
-            if not content:
-                return False
-            
-            document = content
-            if role:
-                document = f"{role}: {content}"
-            
-            # Generate unique ID
-            import uuid
-            doc_id = str(uuid.uuid4())
-            
-            # Add to collection
-            self.memory_provider.add(
-                documents=[document],
-                metadatas=[{k: v for k, v in data.items()}],
-                ids=[doc_id]
-            )
-            
-            return True
-        except Exception as e:
-            self.logger.error(f"Error storing in ChromaDB: {e}")
-            return False
-        {% elif memory_provider == "supabase" %}
-        if not self.memory_provider:
-            return False
-        
-        try:
-            # Add timestamp if not provided
-            if "created_at" not in data:
-                import datetime
-                data["created_at"] = datetime.datetime.utcnow().isoformat()
-            
-            # Insert into database
-            response = await self.memory_provider.table("memories").insert(data).execute()
-            
-            return len(response.data) > 0
-        except Exception as e:
-            self.logger.error(f"Error storing in Supabase: {e}")
-            return False
-        {% elif memory_provider == "pinecone" %}
-        if not self.memory_provider:
-            return False
-        
-        try:
-            # For Pinecone, we need embeddings
-            # Check if OpenAI is available for embeddings
-            try:
-                from openai import OpenAI
-                
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not api_key:
-                    self.logger.warning("OpenAI API key not found, cannot generate embeddings")
-                    return False
-                
-                openai_client = OpenAI(api_key=api_key)
-                
-                # Get text to embed
-                role = data.get("role", "")
-                content = data.get("content", "")
-                
-                if not content:
-                    return False
-                
-                text_to_embed = content
-                if role:
-                    text_to_embed = f"{role}: {content}"
-                
-                # Generate embedding
-                embedding_response = openai_client.embeddings.create(
-                    input=text_to_embed,
-                    model="text-embedding-3-small"
-                )
-                
-                vector = embedding_response.data[0].embedding
-                
-                # Generate ID
-                import uuid
-                doc_id = str(uuid.uuid4())
-                
-                # Add timestamp if not provided
-                if "timestamp" not in data:
-                    import time
-                    data["timestamp"] = time.time()
-                
-                # Upsert to Pinecone
-                self.memory_provider.upsert(
-                    vectors=[
-                        {
-                            "id": doc_id,
-                            "values": vector,
-                            "metadata": {k: v for k, v in data.items() if isinstance(v, (str, int, float, bool))}
-                        }
-                        }
-                    ]
-                )
-                
-                return True
-            except ImportError:
-                self.logger.warning("OpenAI package not installed, cannot generate embeddings")
-                return False
-        except Exception as e:
-            self.logger.error(f"Error storing in Pinecone: {e}")
-            return False
-        {% else %}
-        # No memory provider configured, use default implementation
-        return await super().store_memory(data)
-        {% endif %}
+                # Format the search results for readability
+                try:
+                    # Ensure we're handling JSON correctly
+                    if isinstance(search_results, str):
+                        # Try to parse if it's a string
+                        search_results = json.loads(search_results)
+                    
+                    # Simplified result formatting
+                    if "web" in search_results and "results" in search_results["web"]:
+                        results = search_results["web"]["results"]
+                        formatted_results = []
+                        
+                        for i, result in enumerate(results[:5], 1):  # Limit to top 5 results
+                            title = result.get("title", "No title")
+                            url = result.get("url", "No URL")
+                            description = result.get("description", "No description")
+                            
+                            formatted_results.append(f"{i}. {title}\n   URL: {url}\n   {description}\n")
+                        
+                        if formatted_results:
+                            return "Search Results:\n\n" + "\n".join(formatted_results)
+                    
+                    # If we can't format nicely, just return the full JSON
+                    return f"Raw search results:\n{json.dumps(search_results, indent=2)}"
+                except Exception as e:
+                    self.logger.error(f"Error formatting search results: {e}")
+                    return f"Error formatting search results: {str(e)}\n\nRaw results: {str(search_results)}"
+            else:
+                return "No search results found or search failed."
 
-
-# For backward compatibility and direct usage
-Agent = {{agent_class_name}}
+        # Add the message to conversation history
+        self.conversation_history.append({"role": "user", "content": input_text})
+        
+        # Store the user message in memory
+        user_metadata = {
+            "role": "user", 
+            "timestamp": datetime.now().isoformat(),
+            "type": "conversation"
+        }
+        await self.remember(input_text, user_metadata)
+        
+        # If we have memory, try to get relevant context
+        memory_context = ""
+        if hasattr(self, 'memory') and self.memory:
+            memory_context = await self.get_memory_context(input_text)
+        
+        # Prepare messages for LLM
+        system_content = "You are a helpful assistant for the {{package_name}} agent."
+        if memory_context:
+            system_content += f"\n\n{memory_context}"
+            
+        messages = [
+            {"role": "system", "content": system_content}
+        ]
+        messages.extend(self.conversation_history)
+        
+        # Send request via MCP if configured for OpenAI
+        try:
+            
+            if self.mcp_config and "mcpServers" in self.mcp_config and "openai-llm" in self.mcp_config["mcpServers"]:
+                self.logger.info("Using MCP OpenAI provider")
+                mcp_response = await self._call_mcp(
+                    "openai-llm", 
+                    "chat", 
+                    {
+                        "model": self.model,
+                        "messages": messages,
+                        "temperature": 0.7
+                    }
+                )
+                
+                if mcp_response and "choices" in mcp_response:
+                    response_text = mcp_response["choices"][0]["message"]["content"]
+                    self.conversation_history.append({"role": "assistant", "content": response_text})
+                    
+                    # Store the assistant response in memory
+                    assistant_metadata = {
+                        "role": "assistant", 
+                        "timestamp": datetime.now().isoformat(),
+                        "type": "conversation"
+                    }
+                    await self.remember(response_text, assistant_metadata)
+                    
+                    return response_text
+                else:
+                    self.logger.warning("MCP call failed, falling back to direct API call")
+            
+            else:
+                self.logger.warning("MCP not configured for LLM, using direct API call")
+        except Exception as e:
+            self.logger.error(f"Error with MCP: {e}")
+        
+        # Fall back to direct API call if MCP fails
+        try:
+            
+            if hasattr(self, 'client'):
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.7
+                )
+                
+                response_text = response.choices[0].message.content
+                self.conversation_history.append({"role": "assistant", "content": response_text})
+                
+                # Store the assistant response in memory
+                assistant_metadata = {
+                    "role": "assistant", 
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "conversation"
+                }
+                await self.remember(response_text, assistant_metadata)
+                
+                return response_text
+            
+            else:
+                # Fallback to httpx request if client not available
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    
+                    if self.api_key:
+                        response = await client.post(
+                            "https://api.openai.com/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.api_key}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": self.model,
+                                "messages": messages,
+                                "temperature": 0.7
+                            }
+                        )
+                        
+                        if response.status_code == 200:
+                            data = response.json()
+                            response_text = data["choices"][0]["message"]["content"]
+                            self.conversation_history.append({"role": "assistant", "content": response_text})
+                            
+                            # Store the assistant response in memory
+                            assistant_metadata = {
+                                "role": "assistant", 
+                                "timestamp": datetime.now().isoformat(),
+                                "type": "conversation"
+                            }
+                            await self.remember(response_text, assistant_metadata)
+                            
+                            return response_text
+                        else:
+                            self.logger.error(f"Error from OpenAI API: {response.text}")
+                            return f"Error from OpenAI API: {response.text}"
+                    
+                    else:
+                        return "No API key configured for LLM provider"
+        except Exception as e:
+            self.logger.error(f"Error calling API directly: {e}")
+            return f"Error: {str(e)}"
+        
+        return "No LLM provider configured"
