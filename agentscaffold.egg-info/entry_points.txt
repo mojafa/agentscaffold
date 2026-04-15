@@ -1,3 +1,0 @@
-[console_scripts]
-agentscaffold = agentscaffold.cli:app
-as = agentscaffold.cli:app
